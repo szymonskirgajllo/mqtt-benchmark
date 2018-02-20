@@ -21,6 +21,8 @@ opt.cert = opt.cert &&  fs.readFileSync(opt.cert)
 const now = ()=>Date.now()
 const sleep = (t=opt.sleep)=> new Promise(resolve => setTimeout(resolve, t))
 
+let allMessages = 0;
+
 let clients = []
 let results = []
 let avgConTime = 0;
@@ -51,6 +53,9 @@ const publish = async (c ) =>{
         const failure = c.results.reduce((a,b)=>(a + (!b && 1)),0);
         const duraion = (now() - c.startTime) / 1000
         const throughput = success/duraion
+
+          allMessages += success;
+
         opt.submode?subresult(c):pubresult({success,failure,duraion,throughput})
 
       }
@@ -116,11 +121,15 @@ const subscribe = (c) =>{
           markSubbed(true)
         }
     })
-    c.on('message', (topic, message)=>(c.recivedCount++))
+    c.on('message', (topic, message)=>{
+        allMessages++;
+        c.recivedCount++
+    })
 }
 
 
 const subresult = async (c)=>{
+    print.debug(allMessages);
   await sleep(opt.subtimeout*1000)
   const duraion = now()-c.startTime
 
@@ -142,7 +151,7 @@ const start = async ()=> {
   while (clients.length < opt.clients && failedClients <opt.clients) {
 
     try {
-      const index = clients.push(await connectToClients(opt.submode?opt.subbroker:opt.broker))
+      const index = clients.push(connectToClients(opt.submode?opt.subbroker:opt.broker))
       print.debug(`Client ${index} has successfully connected`);
     } catch (err) {
       print.debug(err);
@@ -156,10 +165,19 @@ const start = async ()=> {
   }
   console.log(`Conencted to ${opt.clients} sucessfully`);
   const action  = opt.submode?subscribe:publish
-  for (let i = 0 ; i <clients.length ; i++) {
-    clients[i].order =i
-    action(clients[i])
-  }
+
+    Promise.all(clients).then((cls) => {
+      clients = cls;
+
+
+        for (let i = 0 ; i <cls.length ; i++) {
+            cls[i].order =i
+            action(cls[i]);
+        }
+    })
+    .catch((err) => {
+      print.debug(err);
+    });
 
 }
 
